@@ -12,7 +12,9 @@
 #define TRANSFORMER_ENGINE_DEQUANTIZE_KERNELS_CUH_
 
 #include <cuda.h>
+#ifndef __HIP_PLATFORM_AMD__
 #include <cudaTypedefs.h>
+#endif
 #include <cuda_runtime.h>
 #include <transformer_engine/cast.h>
 
@@ -250,6 +252,10 @@ static void fp8_dequantize(const Tensor &input, Tensor *output, cudaStream_t str
 }
 
 static void mxfp8_dequantize(const Tensor &input, Tensor *output, cudaStream_t stream) {
+#ifdef __HIP_PLATFORM_AMD__
+  static_assert(false,
+                "Mxfp8_dequantize is not surpported in rocm yet.");
+#else
   bool use_rowwise_scaling = input.has_data();
   bool use_colwise_scaling = input.has_columnwise_data();
   checkCuDriverContext(stream);
@@ -332,6 +338,7 @@ static void mxfp8_dequantize(const Tensor &input, Tensor *output, cudaStream_t s
       );                                                                      // NOLINT(*)
   );                                                                          // NOLINT(*)
 }
+#endif
 }  // namespace dequantization
 
 namespace detail {

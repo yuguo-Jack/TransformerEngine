@@ -14,11 +14,15 @@
 #include <ATen/cudnn/Handle.h>
 #include <ATen/native/DispatchStub.h>
 #include <c10/macros/Macros.h>
+#include <cuda_runtime.h>
+#ifndef USE_ROCM
 #include <cublasLt.h>
 #include <cuda.h>
-#include <cuda_bf16.h>
-#include <cuda_runtime.h>
 #include <cudnn.h>
+#include <cuda_bf16.h>
+#else
+#include <hip/hip_bf16.h>
+#endif
 #include <torch/extension.h>
 #include <torch/torch.h>
 #include <transformer_engine/activation.h>

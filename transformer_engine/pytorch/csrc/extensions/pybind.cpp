@@ -171,6 +171,9 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
         py::arg("input_list"), py::arg("output_list"), py::arg("quantizer_list"), py::arg("otype"));
 
   m.def("te_general_grouped_gemm", &te_general_grouped_gemm, "Grouped GEMM");
+#ifdef USE_ROCM
+  m.def("te_general_batched_gemm", &te_general_batched_gemm, "Batched GEMM");  /// rocblas
+#endif
   m.def("fused_attn_fwd", &fused_attn_fwd,
         "Fused Attention FP8/BF16/FP16 FWD with separate Q, K and V");
   m.def("fused_attn_bwd", &fused_attn_bwd,
@@ -204,6 +207,9 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
   m.def("get_cudnn_version", &get_cudnn_version, "Get cuDNN version",
         py::call_guard<py::gil_scoped_release>());
   m.attr("_num_cublas_streams") = py::int_(transformer_engine::num_streams);
+#ifdef USE_ROCM
+  m.attr("_num_cublas_batchgemm_streams") = py::int_(transformer_engine::num_batchgemm_streams);
+#endif
 
   // Support THD format for Context Parallel
   m.def("thd_read_half_tensor", &thd_read_half_tensor,

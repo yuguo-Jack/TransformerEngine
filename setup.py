@@ -16,6 +16,7 @@ from wheel.bdist_wheel import bdist_wheel
 from build_tools.build_ext import CMakeExtension, get_build_ext
 from build_tools.te_version import te_version
 from build_tools.utils import (
+    rocm_build,
     cuda_archs,
     found_cmake,
     found_ninja,
@@ -57,7 +58,10 @@ class TimedBdist(bdist_wheel):
 
 def setup_common_extension() -> CMakeExtension:
     """Setup CMake extension for common library"""
-    cmake_flags = ["-DCMAKE_CUDA_ARCHITECTURES={}".format(archs)]
+    if rocm_build():
+        cmake_flags = []
+    else:
+        cmake_flags = ["-DCMAKE_CUDA_ARCHITECTURES={}".format(archs)]
     if bool(int(os.getenv("NVTE_UB_WITH_MPI", "0"))):
         assert (
             os.getenv("MPI_HOME") is not None
@@ -69,6 +73,11 @@ def setup_common_extension() -> CMakeExtension:
 
     # Project directory root
     root_path = Path(__file__).resolve().parent
+    if rocm_build():
+        if os.getenv("NVTE_USE_HIPBLASLT") is not None:
+            cmake_flags.append("-DUSE_HIPBLASLT=ON")
+        if os.getenv("NVTE_USE_ROCBLAS") is not None:
+            cmake_flags.append("-DUSE_ROCBLAS=ON")
 
     return CMakeExtension(
         name="transformer_engine",

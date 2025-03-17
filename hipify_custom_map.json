@@ -1,0 +1,14 @@
+{
+ "custom_map" : {
+        "<cuda_bf16.h>" : "<hip/hip_bf16.h>",
+        "<cuda_fp8.h>" : "\"amd_detail/hip_float8.h\"",
+        "CUfunc_cache" : "hipFuncCache_t", 
+        "<nvtx3/nvToolsExt.h>" : "<roctracer/roctx.h>",
+        "cudaLaunchKernelExC" : "hipLaunchKernelExC",
+        "cudaLaunchConfig_t" : "hipLaunchConfig_t",
+        "cudaLaunchAttributeClusterDimension" : "hipLaunchAttributeClusterDimension",
+        "cudaLaunchAttributeCooperative" : "hipLaunchAttributeCooperative",
+        "cudaLaunchAttribute": "hipLaunchAttribute"
+ }
+}
+

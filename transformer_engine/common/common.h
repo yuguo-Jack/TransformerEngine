@@ -6,8 +6,9 @@
 
 #ifndef TRANSFORMER_ENGINE_COMMON_COMMON_H_
 #define TRANSFORMER_ENGINE_COMMON_COMMON_H_
-
+#ifndef __HIP_PLATFORM_AMD__
 #include <cudaTypedefs.h>
+#endif
 #include <cuda_bf16.h>
 #include <cuda_fp16.h>
 #include <cuda_fp8.h>
@@ -174,9 +175,15 @@ using int32 = int32_t;
 using int64 = int64_t;
 using fp32 = float;
 using fp16 = half;
+#ifndef __HIP_PLATFORM_AMD__
 using bf16 = nv_bfloat16;
 using fp8e4m3 = __nv_fp8_e4m3;
 using fp8e5m2 = __nv_fp8_e5m2;
+#else
+using bf16 = hip_bfloat16;
+using fp8e4m3 = hip_f8<hip_f8_type::fp8>;
+using fp8e5m2 = hip_f8<hip_f8_type::bf8>;
+#endif
 #if CUDA_VERSION >= 12080
 using fp8e8m0 = __nv_fp8_e8m0;
 #endif
@@ -196,9 +203,15 @@ TRANSFORMER_ENGINE_TYPE_NAME(int32_t)
 TRANSFORMER_ENGINE_TYPE_NAME(int64_t)
 TRANSFORMER_ENGINE_TYPE_NAME(float)
 TRANSFORMER_ENGINE_TYPE_NAME(half)
+#ifdef __HIP_PLATFORM_AMD__
+TRANSFORMER_ENGINE_TYPE_NAME(hip_bfloat16)
+TRANSFORMER_ENGINE_TYPE_NAME(hip_f8<hip_f8_type::fp8>)
+TRANSFORMER_ENGINE_TYPE_NAME(hip_f8<hip_f8_type::bf8>)
+#else
 TRANSFORMER_ENGINE_TYPE_NAME(nv_bfloat16)
 TRANSFORMER_ENGINE_TYPE_NAME(__nv_fp8_e4m3)
 TRANSFORMER_ENGINE_TYPE_NAME(__nv_fp8_e5m2)
+#endif
 #if CUDA_VERSION >= 12080
 TRANSFORMER_ENGINE_TYPE_NAME(__nv_fp8_e8m0)
 #endif
@@ -475,6 +488,7 @@ void update_tensor_scale_inv(Tensor *t, cudaStream_t stream);
 
 void checkCuDriverContext(CUstream stream);
 
+#ifndef __HIP_PLATFORM_AMD__
 CUtensorMapDataType get_CUtensorMapDataType(DType dtype);
 
 // Set up parameters to create TMA descriptor.
@@ -482,6 +496,7 @@ void create_2D_tensor_map(CUtensorMap &tensorMap, const SimpleTensor &tensor,
                           const uint64_t globalY, const uint64_t globalX, const uint32_t shmemY,
                           const uint32_t shmemX, const uint32_t stride_elems,
                           const uint32_t offset_elems, const size_t type_size);
+#endif
 
 bool is_supported_by_CC_100();
 

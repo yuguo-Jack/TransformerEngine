@@ -56,6 +56,7 @@ void stream_priority_range(int *low_priority, int *high_priority, int device_id 
  */
 bool supports_multicast(int device_id = -1);
 
+#ifndef __HIP_PLATFORM_AMD__
 /* \brief Path to CUDA Toolkit headers
  *
  * The path can be configured by setting NVTE_CUDA_INCLUDE_DIR in the
@@ -66,6 +67,7 @@ bool supports_multicast(int device_id = -1);
  * \return Path to include directory, or an empty string if not found
  */
 const std::string &include_directory(bool required = false);
+#endif
 
 }  // namespace cuda
 

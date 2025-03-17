@@ -313,7 +313,11 @@ int create_communicator_grouped2(communicator **comm, int myrank, int numranks, 
   NVTE_CHECK_CUDA(cudaMalloc(&(*comm)->flags, 2 * GPU_PAGE_SIZE));
   NVTE_CHECK_CUDA(cudaMemset((*comm)->flags, 0, 2 * GPU_PAGE_SIZE));
   (*comm)->flags =
+#ifdef USE_ROCM
+      reinterpret_cast<int *>((reinterpret_cast<uintptr_t>((*comm)->flags) + GPU_PAGE_SIZE - 1) & GPU_PAGE_MASK
+#else
       reinterpret_cast<int *>(((CUdeviceptr)(*comm)->flags + GPU_PAGE_SIZE - 1) & GPU_PAGE_MASK);
+#endif
 
   using namespace std;
 
@@ -588,7 +592,12 @@ int register_user_buffer_collective(void **gpubuff, size_t bytes, communicator *
   } else {
 #endif
     if (alloc) {
+#ifdef USE_ROCM
+      // Ref to RCCL
+      NVTE_CHECK_CUDA(hipExtMallocWithFlags(gpubuff, bytes, hipDeviceMallocFinegrained));
+#else
       NVTE_CHECK_CUDA(cudaMalloc(gpubuff, bytes));
+#endif
       NVTE_CHECK_CUDA(cudaMemset(*gpubuff, 0, bytes));
     }
 

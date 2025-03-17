@@ -47,7 +47,14 @@ void rmsnorm_fwd(const Tensor &x, const Tensor &gamma, const float epsilon, Tens
 
   NVTE_Norm_Backend norm_backend;
   bool is_aligned = true;
+#ifdef USE_ROCM
+  NVTE_CHECK(
+      !is_block_scaling(z->scaling_mode),
+      "Cudnn backend is need by block scaling mode for normalization! Not surpported in rocm yet.");
   bool cudnn_backend = use_cudnn_norm_fwd() || is_block_scaling(z->scaling_mode);
+#else
+  bool cudnn_backend = use_cudnn_norm_fwd() || is_block_scaling(z->scaling_mode);
+#endif
 
   bool training =
       is_delayed_tensor_scaling(z->scaling_mode) || (z->columnwise_data).dptr != nullptr;

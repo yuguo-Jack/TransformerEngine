@@ -39,10 +39,12 @@ Compute always in FP32
 namespace transformer_engine {
 namespace normalization {
 
+#ifndef __HIP_PLATFORM_AMD__
 cudnn_frontend::NormFwdPhase_t get_cudnn_forward_phase(const bool training) {
   return training ? cudnn_frontend::NormFwdPhase_t::TRAINING
                   : cudnn_frontend::NormFwdPhase_t::INFERENCE;
 }
+#endif
 
 TupleKeyType get_key(NVTE_Norm_Backend NormBackend, NVTE_Norm_Type NormType,
                      NVTE_Norm_Stage NormStage, DType wtype, DType itype, DType otype, DType ctype,
@@ -195,6 +197,10 @@ CudnnNormalizationPlan::CudnnNormalizationPlan(NVTE_Norm_Type NormType, NVTE_Nor
       _training(training),
       _norm_stage(NormStage),
       _norm_type(NormType) {
+#ifdef USE_ROCM
+  static_assert(false,
+                "Cudnn backend is not surpported in rocm for normalization yet.");
+#else
   static_assert(CUDNN_FRONTEND_VERSION >= 10601,
                 "CUDNN_FRONTEND_VERSION should be at least 1.6.1!");
 
@@ -378,9 +384,14 @@ CudnnNormalizationPlan::CudnnNormalizationPlan(NVTE_Norm_Type NormType, NVTE_Nor
   }
   // Build the graph
   this->_build();
+#endif
 }
 
 void CudnnNormalizationPlan::_build() {
+#ifdef USE_ROCM
+  static_assert(false,
+                "Cudnn backend is not surpported in rocm for normalization yet.");
+#else
   NVTE_CHECK(_graph.validate().is_good());
   NVTE_CHECK(_graph.build_operation_graph(_handle).is_good());
   NVTE_CHECK(_graph
@@ -390,15 +401,25 @@ void CudnnNormalizationPlan::_build() {
   NVTE_CHECK(_graph.check_support(_handle).is_good());
   NVTE_CHECK(
       _graph.build_plans(_handle, cudnn_frontend::BuildPlanPolicy_t::HEURISTICS_CHOICE).is_good());
+#endif
 }
 
 std::vector<size_t> CudnnNormalizationPlan::getWorkspaceShape() const {
+#ifdef USE_ROCM
+  static_assert(false,
+                "Cudnn backend is not surpported in rocm for normalization yet.");
+#else
   return {static_cast<size_t>(_graph.get_workspace_size())};
+#endif
 }
 
 void CudnnNormalizationPlan::execute(Tensor* z, void* x_dptr, void* gamma_dptr, void* beta_dptr,
                                      void* mean_dptr, void* eps_dptr, void* rsigma_dptr,
                                      void* workspace_dptr, cudaStream_t stream) {
+#ifdef USE_ROCM
+  static_assert(false,
+                "Cudnn backend is not surpported in rocm for normalization yet.");
+#else
   // Binding data pointers to graph tensors
   _variant_pack = {{_x, x_dptr}, {_eps, eps_dptr}};
 
@@ -433,12 +454,17 @@ void CudnnNormalizationPlan::execute(Tensor* z, void* x_dptr, void* gamma_dptr, 
   // Execute the computation
   NVTE_CHECK_CUDNN(cudnnSetStream(_handle, stream));
   NVTE_CHECK(_graph.execute(_handle, _variant_pack, workspace_dptr).is_good());
+#endif
 }
 
 void CudnnNormalizationPlan::execute(void* x_dptr, void* gamma_dptr, void* mean_dptr,
                                      void* rsigma_dptr, void* dx_dptr, void* dz_dptr,
                                      void* dbeta_dptr, void* dgamma_dptr, void* workspace_dptr,
                                      cudaStream_t stream) {
+#ifdef USE_ROCM
+  static_assert(false,
+                "Cudnn backend is not surpported in rocm for normalization yet.");
+#else
   // Binding data pointers to graph tensors
   _variant_pack = {
       {_x, x_dptr}, {_rsigma, rsigma_dptr}, {_dz, dz_dptr}, {_dgamma, dgamma_dptr}, {_dx, dx_dptr}};
@@ -455,6 +481,7 @@ void CudnnNormalizationPlan::execute(void* x_dptr, void* gamma_dptr, void* mean_
   // Execute the computation
   NVTE_CHECK_CUDNN(cudnnSetStream(_handle, stream));
   NVTE_CHECK(_graph.execute(_handle, _variant_pack, workspace_dptr).is_good());
+#endif
 }
 
 NormalizationPlanBase* NormalizationPlanRegistry::getNormalizationPlan(
@@ -491,13 +518,21 @@ NormalizationPlanBase* NormalizationPlanRegistry::getNormalizationPlan(
 }
 
 bool& _cudnn_norm_fwd_flag() {
+#ifdef USE_ROCM
+  return false;
+#else
   static bool flag = transformer_engine::getenv<bool>("NVTE_NORM_FWD_USE_CUDNN");
   return flag;
+#endif
 }
 
 bool& _cudnn_norm_bwd_flag() {
+#ifdef USE_ROCM
+  return false;
+#else
   static bool flag = transformer_engine::getenv<bool>("NVTE_NORM_BWD_USE_CUDNN");
   return flag;
+#endif
 }
 
 bool use_cudnn_norm_fwd() { return _cudnn_norm_fwd_flag(); }
@@ -508,10 +543,18 @@ bool use_cudnn_norm_bwd() { return _cudnn_norm_bwd_flag(); }
 
 void nvte_enable_cudnn_norm_fwd(bool enable) {
   NVTE_API_CALL(nvte_enable_cudnn_norm_fwd);
+#ifdef USE_ROCM
+  transformer_engine::normalization::_cudnn_norm_bwd_flag() = false;
+#else
   transformer_engine::normalization::_cudnn_norm_fwd_flag() = enable;
+#endif
 }
 
 void nvte_enable_cudnn_norm_bwd(bool enable) {
   NVTE_API_CALL(nvte_enable_cudnn_norm_bwd);
+#ifdef USE_ROCM
+  transformer_engine::normalization::_cudnn_norm_bwd_flag() = false;
+#else
   transformer_engine::normalization::_cudnn_norm_bwd_flag() = enable;
+#endif
 }

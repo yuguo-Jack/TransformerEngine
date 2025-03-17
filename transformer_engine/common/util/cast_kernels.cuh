@@ -12,7 +12,9 @@
 #define TRANSFORMER_ENGINE_CAST_KERNELS_CUH_
 
 #include <cuda.h>
+#ifndef __HIP_PLATFORM_AMD__
 #include <cudaTypedefs.h>
+#endif
 #include <cuda_runtime.h>
 #include <transformer_engine/cast.h>
 
@@ -842,6 +844,10 @@ static void cast_fp8_1D(const Tensor &input, Tensor *output, cudaStream_t stream
 template <bool IS_DBIAS, bool IS_DACT, typename ParamOP, float (*OP)(float, const ParamOP &)>
 void cast_fp8_2D(const Tensor &input, const Tensor *act_input, Tensor *output, Tensor *dbias,
                  Tensor *workspace, cudaStream_t stream) {
+#ifdef __HIP_PLATFORM_AMD__
+  static_assert(false,
+                "Cast_fp8_2D is not surpported in rocm yet.");
+#else
   checkCuDriverContext(stream);
 
   const size_t rows = input.flat_first_dim();
@@ -905,6 +911,7 @@ void cast_fp8_2D(const Tensor &input, const Tensor *act_input, Tensor *output, T
             reduce_dbias<IType>(workspace_ptr, dbias, dbias_rows, dbias_cols, stream);
           });  // NOLINT(*)
   );           // NOLINT(*)
+#endif
 }
 
 template <bool IS_DBIAS, bool IS_DACT, bool IS_ACT, typename ParamOP,
@@ -912,6 +919,10 @@ template <bool IS_DBIAS, bool IS_DACT, bool IS_ACT, typename ParamOP,
 void mxfp8_quantize(const Tensor &input, const Tensor *act_input,
                     const Tensor *noop,  // TODO (ksivamani)
                     Tensor *output, Tensor *dbias, Tensor *workspace, cudaStream_t stream) {
+#ifdef __HIP_PLATFORM_AMD__
+  static_assert(false,
+                "Mxfp8_quantize is not surpported in rocm yet.");
+#else
   bool use_rowwise_scaling = output->has_data();
   bool use_colwise_scaling = output->has_columnwise_data();
   checkCuDriverContext(stream);
@@ -1016,6 +1027,7 @@ void mxfp8_quantize(const Tensor &input, const Tensor *act_input,
           );           // NOLINT(*)
       );               // NOLINT(*)
   );                   // NOLINT(*)
+#endif
 }
 
 namespace detail {

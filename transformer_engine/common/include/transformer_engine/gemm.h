@@ -109,6 +109,21 @@ void nvte_multi_stream_cublas_gemm(const NVTETensor* A, const NVTETensor* B, NVT
                                    NVTETensor* workspace, bool accumulate,
                                    bool use_split_accumulator, int math_sm_count,
                                    cudaStream_t stream);
+
+#ifdef __HIP_PLATFORM_AMD__
+void nvte_multi_stream_cublas_batchgemm(const NVTETensor* A, const NVTETensor* B, NVTETensor* D,
+                                   const NVTETensor* bias, NVTETensor* pre_gelu_out,
+                                   const int num_gemms, bool transa, bool transb, bool grad,
+                                   NVTETensor* workspace, bool accumulate,
+                                   bool use_split_accumulator, int math_sm_count,
+                                   cudaStream_t stream);
+                                   
+void nvte_cublas_batchgemm(const NVTETensor A, const NVTETensor B, NVTETensor D, const NVTETensor bias,
+                      NVTETensor pre_gelu_out, bool transa, bool transb, bool grad,
+                      NVTETensor workspace, bool accumulate, bool use_split_accumulator,
+                      int math_sm_count, int batch_count, cudaStream_t stream);
+#endif
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif
@@ -116,8 +131,14 @@ void nvte_multi_stream_cublas_gemm(const NVTETensor* A, const NVTETensor* B, NVT
 /*! \namespace transformer_engine
  */
 namespace transformer_engine {
-
+#ifdef __HIP_PLATFORM_AMD__
+// In dcu, 2 stream is more better
+constexpr int num_streams = 2;
+// Add for batchgemm stream
+constexpr int num_batchgemm_streams = 1;
+#else
 constexpr int num_streams = 4;
+#endif
 
 }  // namespace transformer_engine
 

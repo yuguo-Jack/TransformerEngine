@@ -162,6 +162,44 @@ def found_pybind11() -> bool:
 
 
 @functools.lru_cache(maxsize=None)
+def rocm_build() -> bool:
+    """ ROCm build should be performed if:
+    - It is configured with NVTE_USE_ROCM=1 env
+      OR:
+    - HIP compiler is found and CUDA one is not
+    """
+    if bool(int(os.getenv("NVTE_USE_ROCM", "0"))):
+        return True
+
+    try:
+        cuda_path()
+        return False
+    except FileNotFoundError:
+        pass
+
+    _, hipcc_bin = rocm_path()
+    return hipcc_bin.is_file()
+
+
+@functools.lru_cache(maxsize=None)
+def rocm_path() -> Tuple[str, str]:
+    """ROCm root path and HIPCC binary path as a tuple"""
+    """If ROCm installation is not specified, use default /opt/dtk path"""
+    if os.getenv("ROCM_PATH"):
+        rocm_home = Path(os.getenv("ROCM_PATH"))
+        hipcc_bin = rocm_home / "bin" / "hipcc"
+    if hipcc_bin is None:
+        hipcc_bin = shutil.which("hipcc")
+        if hipcc_bin is not None:
+            hipcc_bin = Path(hipcc_bin)
+            rocm_home = hipcc_bin.parent.parent
+    if hipcc_bin is None:
+        rocm_home = Path("/opt/dtk/")
+        hipcc_bin = rocm_home / "bin" / "hipcc"
+    return rocm_home, hipcc_bin
+
+
+@functools.lru_cache(maxsize=None)
 def cuda_path() -> Tuple[str, str]:
     """CUDA root path and NVCC binary path as a tuple.
 
@@ -228,6 +266,9 @@ def get_frameworks() -> List[str]:
             _frameworks.extend(arg.replace("--framework=", "").split(","))
             sys.argv.remove(arg)
 
+    if rocm_build():
+        _requested_frameworks = [framework.lower() for framework in _frameworks]
+
     # Detect installed frameworks if not explicitly specified
     if not _frameworks:
         try:
@@ -254,6 +295,28 @@ def get_frameworks() -> List[str]:
     for framework in _frameworks:
         if framework not in supported_frameworks:
             raise ValueError(f"Transformer Engine does not support framework={framework}")
+
+    if rocm_build():
+        _unsupported_frameworks = []
+        if "pytorch" in _frameworks:
+            try:
+                from torch.utils.cpp_extension import IS_HIP_EXTENSION
+            except ImportError:
+                IS_HIP_EXTENSION=False
+            if not IS_HIP_EXTENSION:
+                if "pytorch" in _requested_frameworks:
+                    _unsupported_frameworks.append("pytorch")
+                _frameworks.remove("pytorch")
+        if "jax" in _frameworks:
+            if not any(re.match(r'jax-rocm\d+-plugin', d.metadata['Name']) for d in importlib.metadata.distributions()):
+                try:
+                    import jaxlib.rocm #pre JAX 0.4.30 way
+                except ImportError:
+                    if "jax" in _requested_frameworks:
+                        _unsupported_frameworks.append("jax")
+                    _frameworks.remove("jax")
+        if _unsupported_frameworks:
+            raise ValueError(f"ROCm is not supported by requested frameworks: {_unsupported_frameworks}")
 
     return _frameworks
 
@@ -291,6 +354,41 @@ def copy_common_headers(
         new_path = dst_dir / path.relative_to(src_dir)
         new_path.parent.mkdir(exist_ok=True, parents=True)
         shutil.copy(path, new_path)
+
+
+def hipify(base_dir, src_dir, sources, include_dirs):
+    hipify_path = base_dir / "3rdparty" / "hipify_torch"
+    cwd = os.getcwd()
+    os.chdir(hipify_path)
+    from hipify_torch.hipify_python import hipify as do_hipify
+    os.chdir(cwd)
+
+    hipify_result = do_hipify(
+        project_directory=src_dir,
+        output_directory=src_dir,
+        includes=["*"],
+        ignores=["*/amd_detail/*", "*/aotriton/*", "*/ck_fused_attn/*"],
+        header_include_dirs=include_dirs,
+        custom_map_list=base_dir / "hipify_custom_map.json",
+        extra_files=[],
+        is_pytorch_extension=True,
+        hipify_extra_files_only=False,
+        show_detailed=False)
+
+    # Because hipify output_directory == project_directory
+    # Original sources list may contain previous hipifying results that ends up with duplicated entries
+    # Keep unique entries only
+    hipified_sources = set()
+    for fname in sources:
+        fname = os.path.abspath(str(fname))
+        if fname in hipify_result:
+            file_result = hipify_result[fname]
+            if file_result.hipified_path is not None:
+                fname = hipify_result[fname].hipified_path
+        # setup() arguments must *always* be /-separated paths relative to the setup.py directory,
+        # *never* absolute paths
+        hipified_sources.add(os.path.relpath(fname, cwd))
+    return list(hipified_sources)
 
 
 def install_and_import(package):

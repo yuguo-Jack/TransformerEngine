@@ -9,8 +9,10 @@
 #include <cuda_runtime.h>
 
 #if __CUDA_ARCH__ >= 800
+#include <cuda_bf16.h>
 #define half_dtype nv_bfloat16
 #else
+#include <cuda_fp16.h>
 #define half_dtype half
 #endif
 
@@ -24,6 +26,18 @@
 
 #define MAX_THREADS 1024
 
+#ifdef __HIP_PLATFORM_AMD__
+#define ATOMIC_CONSUMER(chunk)                                             \
+  if (counters) {                                                          \
+    if (threadIdx.x == 0 && blockIdx.x == 0) {                             \
+      while (0 != (atomicCAS(((unsigned int *)counters) + chunk, 0, 0))) { \
+      }                                                                    \
+      ((unsigned int *)counters)[chunk] = 1;                               \
+      __threadfence_system();                                              \
+    }                                                                      \
+    if (blockIdx.x == 0) __syncthreads();                                  \
+  }
+#else
 #define ATOMIC_CONSUMER(chunk)                                             \
   if (counters) {                                                          \
     if (threadIdx.x == 0 && blockIdx.x == 0) {                             \
@@ -34,6 +48,7 @@
     }                                                                      \
     if (blockIdx.x == 0) __syncthreads();                                  \
   }
+#endif
 
 #define ATOMIC_PRODUCER(chunk)             \
   if (counters) {                          \
@@ -1025,7 +1040,13 @@ __global__ void __launch_bounds__(MAX_THREADS)
 
       // reset counter for next producer.
       ((unsigned int *)counters)[0] = 1;
+#ifdef __HIP_PLATFORM_AMD__
+      __threadfence_system();
+      // __threadfence();
+      // __syncthreads()
+#else
       asm volatile("fence.sc.gpu;\n");
+#endif
     }
   }
   __syncthreads();
@@ -1116,7 +1137,13 @@ __global__ void __launch_bounds__(MAX_THREADS)
 
         // reset counter for next producer.
         ((unsigned int *)counters)[chunk_i] = 1;
+#ifdef __HIP_PLATFORM_AMD__
+        __threadfence_system();
+        // __threadfence();
+        // __syncthreads()
+#else  
         asm volatile("fence.sc.gpu;\n");
+#endif
       }
     }
     __syncthreads();
@@ -1357,6 +1384,33 @@ __global__ void __launch_bounds__(MAX_THREADS)
   }
 }  // fp16 inplace allgather kernel (Volta,Hopper)
 
+#ifdef __HIP_PLATFORM_AMD__
+#define SETUP_LAUNCH_CONFIG(sms, threads, stream)                                    \
+  cudaLaunchConfig_t cfg = {sms, threads, 0, stream, NULL, 0};                       \
+  cudaLaunchAttribute attribute_ub[2];                                               \
+  attribute_ub[1].id = cudaLaunchAttributeClusterDimension;                          \
+  attribute_ub[1].val.clusterDim.x = sms % comm->cga_size == 0 ? comm->cga_size : 1; \
+  attribute_ub[1].val.clusterDim.y = 1;                                              \
+  attribute_ub[1].val.clusterDim.z = 1;                                              \
+  attribute_ub[0].id = cudaLaunchAttributeCooperative;                               \
+  cfg.attrs = attribute_ub;                                                          \
+  cfg.numAttrs = 1;  // dtk unsupport hipLaunchAttributeClusterDimension
+
+#define ADD_LAUNCH_COMPLETION_EVENT(attribute_ub, comm_launch_event)
+#define NUM_LAUNCH_ATTRIBUTE_FOR_FDL_LAUNCH 2
+
+#define SETUP_LAUNCH_CONFIG_WITH_COMPLETION_EVENT(sms, threads, stream, comm_launch_event) \
+  cudaLaunchConfig_t cfg = {sms, threads, 0, stream, NULL, 0};                             \
+  cudaLaunchAttribute attribute_ub[NUM_LAUNCH_ATTRIBUTE_FOR_FDL_LAUNCH] = {};              \
+  ADD_LAUNCH_COMPLETION_EVENT(attribute_ub, comm_launch_event)                             \
+  attribute_ub[1].id = cudaLaunchAttributeClusterDimension;                                \
+  attribute_ub[1].val.clusterDim.x = sms % comm->cga_size == 0 ? comm->cga_size : 1;       \
+  attribute_ub[1].val.clusterDim.y = 1;                                                    \
+  attribute_ub[1].val.clusterDim.z = 1;                                                    \
+  attribute_ub[0].id = cudaLaunchAttributeCooperative;                                     \
+  cfg.attrs = attribute_ub;                                                                \
+  cfg.numAttrs = 1;  // dtk unsupport hipLaunchAttributeClusterDimension
+#else
 #define SETUP_LAUNCH_CONFIG(sms, threads, stream)                                    \
   cudaLaunchConfig_t cfg = {sms, threads, 0, stream, NULL, 0};                       \
   cudaLaunchAttribute attribute_ub[2];                                               \
@@ -1389,6 +1443,7 @@ __global__ void __launch_bounds__(MAX_THREADS)
   attribute_ub[0].id = cudaLaunchAttributeCooperative;                                     \
   cfg.attrs = attribute_ub;                                                                \
   cfg.numAttrs = NUM_LAUNCH_ATTRIBUTE_FOR_FDL_LAUNCH;
+#endif
 
 #define callranks_ag(x)                                                                            \
   if (ar_nvsize == x) {                                                                            \
@@ -1922,6 +1977,53 @@ void reducescatter2_userbuff_stridedoutput_fp8(void *output, float *scale, const
   }
 }
 
+#ifdef __HIP_PLATFORM_AMD__
+template void reducescatter2_userbuff_stridedoutput_fp8<hip_f8<hip_f8_type::bf8>>(
+    void *output, float *scale, const int handler, const int offset, const int rowelements,
+    const int colelements, const int strideelements, communicator *comm, cudaStream_t stream,
+    cudaEvent_t comm_launch_event);
+
+template void reducescatter2_userbuff_stridedoutput_fp8<hip_f8<hip_f8_type::fp8>>(
+    void *output, float *scale, const int handler, const int offset, const int rowelements,
+    const int colelements, const int strideelements, communicator *comm, cudaStream_t stream,
+    cudaEvent_t comm_launch_event);
+
+template <typename fp8type>
+void reducescatter2_userbuff_fp8(void *output, float *scale, const int handler, const int offset,
+                                 const int elements, communicator *comm, cudaStream_t stream,
+                                 cudaEvent_t comm_launch_event) {
+  reducescatter2_userbuff_stridedoutput_fp8<fp8type>(output, scale, handler, offset, elements, 1, 0,
+                                                     comm, stream, comm_launch_event);
+}
+
+template void reducescatter2_userbuff_fp8<hip_f8<hip_f8_type::bf8>>(void *output, float *scale,
+                                                         const int handler, const int offset,
+                                                         const int elements, communicator *comm,
+                                                         cudaStream_t stream,
+                                                         cudaEvent_t comm_launch_event);
+template void reducescatter2_userbuff_fp8<hip_f8<hip_f8_type::fp8>>(void *output, float *scale,
+                                                         const int handler, const int offset,
+                                                         const int elements, communicator *comm,
+                                                         cudaStream_t stream,
+                                                         cudaEvent_t comm_launch_event);
+
+template void reducescatter2_userbuff_strided_atomic_fp8<hip_f8<hip_f8_type::fp8>>(
+    void *output, float *scale, const int handler, const int offset, const int rowelements,
+    const int colelements, const int strideelements_out, const int strideelements_in,
+    const int numchunks, void *counters, communicator *comm, cudaStream_t stream);
+template void reducescatter2_userbuff_strided_atomic_fp8<hip_f8<hip_f8_type::bf8>>(
+    void *output, float *scale, const int handler, const int offset, const int rowelements,
+    const int colelements, const int strideelements_out, const int strideelements_in,
+    const int numchunks, void *counters, communicator *comm, cudaStream_t stream);
+template void reducescatter2_userbuff_strided_multiatomic_fp8<hip_f8<hip_f8_type::fp8>>(
+    void *output, float *scale, const int handler, const int offset, const int rowelements,
+    const int colelements, const int strideelements_out, const int strideelements_in,
+    const int numchunks, void *counters, communicator *comm, cudaStream_t stream);
+template void reducescatter2_userbuff_strided_multiatomic_fp8<hip_f8<hip_f8_type::bf8>>(
+    void *output, float *scale, const int handler, const int offset, const int rowelements,
+    const int colelements, const int strideelements_out, const int strideelements_in,
+    const int numchunks, void *counters, communicator *comm, cudaStream_t stream);
+#else
 template void reducescatter2_userbuff_stridedoutput_fp8<__nv_fp8_e5m2>(
     void *output, float *scale, const int handler, const int offset, const int rowelements,
     const int colelements, const int strideelements, communicator *comm, cudaStream_t stream,
@@ -1967,6 +2069,7 @@ template void reducescatter2_userbuff_strided_multiatomic_fp8<__nv_fp8_e5m2>(
     void *output, float *scale, const int handler, const int offset, const int rowelements,
     const int colelements, const int strideelements_out, const int strideelements_in,
     const int numchunks, void *counters, communicator *comm, cudaStream_t stream);
+#endif
 
 __global__ void kuserbuffers_pullsend(int myrank, int peer, int *send_id, int *flagptr) {
   atomicAdd_system(flagptr, 1);
@@ -2186,7 +2289,13 @@ __global__ void __launch_bounds__(MAX_THREADS)
     // Decrement atomic val to signal current output tile finish
     if (counters) {
       ((unsigned int *)counters)[0] = 0;
+#ifdef __HIP_PLATFORM_AMD__
+      __threadfence_system();
+      // __threadfence();
+      // __syncthreads()
+#else
       asm volatile("fence.sc.gpu;\n");
+#endif
     }
   }
 }
@@ -2257,7 +2366,13 @@ __global__ void __launch_bounds__(MAX_THREADS) kuserbuffers_pushsendrecv_multiat
       // Decrement atomic val to signal current output tile finish
       if (counters) {
         ((unsigned int *)counters)[recv_chunk_id /*chunk_i+1*/] = 0;
+#ifdef __HIP_PLATFORM_AMD__
+        __threadfence_system();
+        // __threadfence();
+        // __syncthreads()
+#else  
         asm volatile("fence.sc.gpu;\n");
+#endif
       }
     }
 
@@ -2535,7 +2650,13 @@ static __global__ void producer_kernel(void *atomic_ptr, int chunk_i) {
   // COMM kernel need to explicitely flash gmem.
   // GEMM kernel already executed, and can not see gmem
   // change without COMM kernel explicitely make change
+#ifdef __HIP_PLATFORM_AMD__
+  __threadfence_system();
+  // __threadfence();
+  // __syncthreads()
+#else
   asm volatile("fence.sc.gpu;\n");
+#endif
 }
 
 // consumer
@@ -2545,7 +2666,13 @@ static __global__ void consumer_kernel(void *atomic_ptr, int chunk_i) {
     while (0 != (atomicCAS((unsigned int *)atomic_ptr + chunk_i, 0, 0))) {
     }
     ((unsigned int *)atomic_ptr)[chunk_i] = 1;
+#ifdef __HIP_PLATFORM_AMD__
+    __threadfence_system();
+    // __threadfence();
+    // __syncthreads()
+#else
     asm volatile("fence.sc.gpu;\n");
+#endif
   }
 }
 
@@ -2557,7 +2684,13 @@ static __global__ void consumer_batch_kernel(void *atomic_ptr, int first_chunk_i
       while (0 != (atomicCAS((unsigned int *)atomic_ptr + i, 0, 0))) {
       }
       ((unsigned int *)atomic_ptr)[i] = 1;
+#ifdef __HIP_PLATFORM_AMD__
+      __threadfence_system();
+      // __threadfence();
+      // __syncthreads()
+#else
       asm volatile("fence.sc.gpu;\n");
+#endif
     }
   }
 }
@@ -2651,10 +2784,10 @@ void reduce_fp8_in_bf16_out(void *inputs, void *output, float *scale, int num_in
                                    num_aligned_elements_per_input, tot_input_size);
 }
 
-template void reduce_fp8_in_bf16_out<__nv_fp8_e4m3>(void *inputs, void *output, float *scale,
+template void reduce_fp8_in_bf16_out<hip_f8<hip_f8_type::fp8>>(void *inputs, void *output, float *scale,
                                                     int num_inputs, int input_size,
                                                     cudaStream_t stream);
-template void reduce_fp8_in_bf16_out<__nv_fp8_e5m2>(void *inputs, void *output, float *scale,
+template void reduce_fp8_in_bf16_out<hip_f8<hip_f8_type::bf8>>(void *inputs, void *output, float *scale,
                                                     int num_inputs, int input_size,
                                                     cudaStream_t stream);
 

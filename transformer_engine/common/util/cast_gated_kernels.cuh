@@ -12,7 +12,9 @@
 #define TRANSFORMER_ENGINE_CAST_GATED_KERNELS_CUH_
 
 #include <cuda.h>
+#ifndef __HIP_PLATFORM_AMD__
 #include <cudaTypedefs.h>
+#endif
 #include <cuda_runtime.h>
 #include <transformer_engine/activation.h>
 #include <transformer_engine/cast.h>
@@ -723,6 +725,10 @@ template <bool IS_DGATED, typename ParamOP, float (*ActOP)(float, const ParamOP 
           float (*DActOP)(float, const ParamOP &)>
 void cast_fp8_gated(const Tensor &grad, const Tensor &gated_input, Tensor *output,
                     cudaStream_t stream) {
+#ifdef __HIP_PLATFORM_AMD__
+  static_assert(false,
+                "Cast_fp8_gated is not surpported in rocm yet.");
+#else
   if (output->has_data()) {
     NVTE_CHECK(output->scale_inv.dptr != nullptr, "Scaling tensor must be allocated.");
   }
@@ -796,12 +802,17 @@ void cast_fp8_gated(const Tensor &grad, const Tensor &gated_input, Tensor *outpu
               tensor_map_output_gate, amax_ptr, scale_inv_ptr, scale_ptr, rows,
               cols););  // NOLINT(*)
   );                    // NOLINT(*)
+#endif
 }
 
 template <bool IS_DGATED, typename ParamOP, float (*ActOP)(float, const ParamOP &),
           float (*DActOP)(float, const ParamOP &)>
 void cast_mxfp8_gated(const Tensor &grad, const Tensor &gated_input, Tensor *output,
                       cudaStream_t stream) {
+#ifdef __HIP_PLATFORM_AMD__
+  static_assert(false,
+                "Cast_mxfp8_gated is not surpported in rocm yet.");
+#else
   const bool USE_ROWWISE_SCALING = output->has_data();
   const bool USE_COLWISE_SCALING = output->has_columnwise_data();
 
@@ -919,6 +930,7 @@ void cast_mxfp8_gated(const Tensor &grad, const Tensor &gated_input, Tensor *out
           );                                    // NOLINT(*)
       );                                        // NOLINT(*)
   );                                            // NOLINT(*)
+#endif
 }
 
 template <typename ParamOP, float (*ActOP)(float, const ParamOP &)>

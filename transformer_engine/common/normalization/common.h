@@ -7,9 +7,11 @@
 #ifndef TRANSFORMER_ENGINE_COMMON_NORM_COMMON_H_
 #define TRANSFORMER_ENGINE_COMMON_NORM_COMMON_H_
 
+#ifndef __HIP_PLATFORM_AMD__
 #include <cudnn.h>
 #include <cudnn_frontend.h>
 #include <cudnn_frontend_utils.h>
+#endif
 #include <transformer_engine/transformer_engine.h>
 
 #include <functional>
@@ -282,6 +284,7 @@ class CudnnNormalizationPlan : public NormalizationPlanBase {
   const NVTE_Norm_Type _norm_type;
   std::unique_ptr<char[]> _scalar_dptr;
   std::unique_ptr<float> _one_dptr = std::make_unique<float>(1.0f);
+#ifndef __HIP_PLATFORM_AMD__
   // FWD
   std::shared_ptr<fe::graph::Tensor_attributes> _x, _gamma_zero, _scalar_offset, _gamma, _beta,
       _eps, _mean, _rsigma, _z, _z_scale, _one_for_div, _z_scale_inv, _amax, _z_fp8;
@@ -294,6 +297,7 @@ class CudnnNormalizationPlan : public NormalizationPlanBase {
   fe::graph::Graph _graph;
   std::unordered_map<std::shared_ptr<fe::graph::Tensor_attributes>, void*> _variant_pack;
   cudnnHandle_t _handle;
+#endif
 };
 
 class NormalizationPlanRegistry {
@@ -322,9 +326,15 @@ using byte = uint8_t;
 using int32 = int32_t;
 using fp32 = float;
 using fp16 = half;
+#ifndef __HIP_PLATFORM_AMD__
 using bf16 = nv_bfloat16;
 using fp8e4m3 = __nv_fp8_e4m3;
 using fp8e5m2 = __nv_fp8_e5m2;
+#else
+using bf16 = __hip_bfloat16;
+using fp8e4m3 = hip_f8<hip_f8_type::fp8>;
+using fp8e5m2 = hip_f8<hip_f8_type::bf8>;
+#endif
 
 template <typename T>
 struct TypeToDType;

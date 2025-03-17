@@ -11,6 +11,7 @@
 
 namespace transformer_engine {
 
+#ifndef USE_ROCM
 // get cuDNN data type
 cudnnDataType_t get_cudnn_dtype(const transformer_engine::DType t) {
   using namespace transformer_engine;
@@ -60,6 +61,7 @@ cudnn_frontend::DataType_t get_cudnn_fe_dtype(const transformer_engine::DType t)
 void nvte_cudnn_handle_init() {
   auto handle = cudnnExecutionPlanManager::Instance().GetCudnnHandle();
 }
+#endif
 
 }  // namespace transformer_engine
 

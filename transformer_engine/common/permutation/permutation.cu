@@ -8,6 +8,11 @@
 
 #include "../common.h"
 
+#ifdef __HIP_PLATFORM_AMD__
+using __nv_fp8_e4m3 = hip_f8<hip_f8_type::fp8>;
+using __nv_fp8_e5m2 = hip_f8<hip_f8_type::bf8>;
+#endif
+
 static __global__ void moe_permute_row_map(const int *sorted_row_id, int *row_id_map,
                                            const int num_rows, const int topK,
                                            const int num_out_tokens) {

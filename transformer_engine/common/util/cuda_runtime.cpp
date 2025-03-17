@@ -18,12 +18,14 @@ namespace transformer_engine {
 
 namespace cuda {
 
+#ifndef USE_ROCM
 namespace {
 
 // String with build-time CUDA include path
 #include "string_path_cuda_include.h"
 
 }  // namespace
+#endif // USE_ROCM
 
 int num_devices() {
   auto query_num_devices = []() -> int {
@@ -126,6 +128,7 @@ bool supports_multicast(int device_id) {
 #endif
 }
 
+#ifndef USE_ROCM
 const std::string &include_directory(bool required) {
   static std::string path;
 
@@ -190,6 +193,7 @@ const std::string &include_directory(bool required) {
   // Return cached path
   return path;
 }
+#endif // USE_ROCM
 
 }  // namespace cuda
 

@@ -267,6 +267,8 @@
       AT_ERROR(#NAME, " not implemented for '", toString(TYPEIN), "'");               \
   }
 
+constexpr uint32_t THREADS_PER_WARP = 32;
+
 template <typename T>
 __device__ __forceinline__ T
 reduce_block_into_lanes(T *x, T val, int lanes = 1,
@@ -295,7 +297,11 @@ reduce_block_into_lanes(T *x, T val, int lanes = 1,
       // __SYNCWARP();
 
 #pragma unroll
+#ifdef __HIP_PLATFORM_AMD__
+    for (int i = 16; i >= lanes; i >>= 1) final = final + __shfl_down(final, i, THREADS_PER_WARP);
+#else
     for (int i = 16; i >= lanes; i >>= 1) final = final + __shfl_down_sync(0xffffffff, final, i);
+#endif
   }
 
   if (share_result) {
@@ -337,7 +343,11 @@ reduce_block_into_lanes_max_op(T *x, T val, int lanes = 1,
 
 #pragma unroll
     for (int i = 16; i >= lanes; i >>= 1)
+#ifdef __HIP_PLATFORM_AMD__
+      final = fmaxf(fabsf(final), fabsf(__shfl_down(final, i, THREADS_PER_WARP)));
+#else
       final = fmaxf(fabsf(final), fabsf(__shfl_down_sync(0xffffffff, final, i)));
+#endif
   }
 
   if (share_result) {

@@ -9,6 +9,8 @@ from pathlib import Path
 import setuptools
 
 from .utils import (
+    rocm_build,
+    hipify,
     all_files_in_dir,
     cuda_archs,
     cuda_version,
@@ -37,49 +39,69 @@ def setup_pytorch_extension(
         csrc_header_files,
     ]
 
+    if rocm_build():
+        current_file_path = Path(__file__).parent.resolve()
+        base_dir = current_file_path.parent
+        sources = hipify(base_dir, csrc_source_files, sources, include_dirs)
+
     # Compiler flags
     cxx_flags = [
         "-O3",
         "-fvisibility=hidden",
     ]
-    nvcc_flags = [
-        "-O3",
-        "-U__CUDA_NO_HALF_OPERATORS__",
-        "-U__CUDA_NO_HALF_CONVERSIONS__",
-        "-U__CUDA_NO_BFLOAT16_OPERATORS__",
-        "-U__CUDA_NO_BFLOAT16_CONVERSIONS__",
-        "-U__CUDA_NO_BFLOAT162_OPERATORS__",
-        "-U__CUDA_NO_BFLOAT162_CONVERSIONS__",
-        "--expt-relaxed-constexpr",
-        "--expt-extended-lambda",
-        "--use_fast_math",
-    ]
-
-    cuda_architectures = cuda_archs()
-
-    if "70" in cuda_architectures:
-        nvcc_flags.extend(["-gencode", "arch=compute_70,code=sm_70"])
-
-    # Version-dependent CUDA options
-    try:
-        version = cuda_version()
-    except FileNotFoundError:
-        print("Could not determine CUDA Toolkit version")
+    if rocm_build():
+        nvcc_flags = [
+            "-O3",
+            "-U__HIP_NO_HALF_OPERATORS__",
+            "-U__HIP_NO_HALF_CONVERSIONS__",
+            "-U__HIP_NO_BFLOAT16_OPERATORS__",
+            "-U__HIP_NO_BFLOAT16_CONVERSIONS__",
+            "-U__HIP_NO_BFLOAT162_OPERATORS__",
+            "-U__HIP_NO_BFLOAT162_CONVERSIONS__",
+        ]
     else:
-        if version < (12, 0):
-            raise RuntimeError("Transformer Engine requires CUDA 12.0 or newer")
-        nvcc_flags.extend(
-            (
-                "--threads",
-                os.getenv("NVTE_BUILD_THREADS_PER_JOB", "1"),
+        nvcc_flags = [
+            "-O3",
+            "-U__CUDA_NO_HALF_OPERATORS__",
+            "-U__CUDA_NO_HALF_CONVERSIONS__",
+            "-U__CUDA_NO_BFLOAT16_OPERATORS__",
+            "-U__CUDA_NO_BFLOAT16_CONVERSIONS__",
+            "-U__CUDA_NO_BFLOAT162_OPERATORS__",
+            "-U__CUDA_NO_BFLOAT162_CONVERSIONS__",
+            "--expt-relaxed-constexpr",
+            "--expt-extended-lambda",
+            "--use_fast_math",
+        ]
+    # Version-dependent CUDA options
+    if rocm_build():
+        ##TODO: Figure out which hipcc version starts to support this parallel compilation
+        nvcc_flags.extend(["-parallel-jobs=4"])
+    else:
+        cuda_architectures = cuda_archs()
+        if "70" in cuda_architectures:
+            nvcc_flags.extend(["-gencode", "arch=compute_70,code=sm_70"])
+        try:
+            version = cuda_version()
+        except FileNotFoundError:
+            print("Could not determine CUDA Toolkit version")
+        else:
+            if version < (12, 0):
+                raise RuntimeError("Transformer Engine requires CUDA 12.0 or newer")
+            nvcc_flags.extend(
+                (
+                    "--threads",
+                    os.getenv("NVTE_BUILD_THREADS_PER_JOB", "1"),
+                )
             )
-        )
+    
+            for arch in cuda_architectures.split(";"):
+                if arch == "70":
+                    continue  # Already handled
+                nvcc_flags.extend(["-gencode", f"arch=compute_{arch},code=sm_{arch}"])
 
-        for arch in cuda_architectures.split(";"):
-            if arch == "70":
-                continue  # Already handled
-            nvcc_flags.extend(["-gencode", f"arch=compute_{arch},code=sm_{arch}"])
-
+    # Libraries
+    library_dirs = []
+    libraries = []
     if bool(int(os.getenv("NVTE_UB_WITH_MPI", "0"))):
         assert (
             os.getenv("MPI_HOME") is not None
@@ -88,6 +110,8 @@ def setup_pytorch_extension(
         include_dirs.append(mpi_path / "include")
         cxx_flags.append("-DNVTE_UB_WITH_MPI")
         nvcc_flags.append("-DNVTE_UB_WITH_MPI")
+        library_dirs.append(mpi_path / "lib")
+        libraries.append("mpi")
 
     # Construct PyTorch CUDA extension
     sources = [str(path) for path in sources]
@@ -102,4 +126,6 @@ def setup_pytorch_extension(
             "cxx": cxx_flags,
             "nvcc": nvcc_flags,
         },
+        libraries=[str(lib) for lib in libraries],
+        library_dirs=[str(lib_dir) for lib_dir in library_dirs],
     )

@@ -19,6 +19,8 @@ from typing import List, Optional, Type
 import setuptools
 
 from .utils import (
+    rocm_build,
+    rocm_path,
     cmake_bin,
     debug_build_enabled,
     found_ninja,
@@ -150,29 +152,38 @@ def get_build_ext(extension_cls: Type[setuptools.Extension]):
                                 ext.extra_compile_args[target] = []
 
                 # Define new _compile method that redirects to NVCC for .cu and .cuh files.
+                # Also redirect .hip files to HIPCC
                 original_compile_fn = self.compiler._compile
-                self.compiler.src_extensions += [".cu", ".cuh"]
+                self.compiler.src_extensions += [".cu", ".cuh", ".hip"]
 
                 def _compile_fn(obj, src, ext, cc_args, extra_postargs, pp_opts) -> None:
                     # Copy before we make any modifications.
                     cflags = copy.deepcopy(extra_postargs)
                     original_compiler = self.compiler.compiler_so
                     try:
-                        _, nvcc_bin = cuda_path()
+
+                        if rocm_build():
+                            _, nvcc_bin = rocm_path()
+                        else:
+                            _, nvcc_bin = cuda_path()
                         original_compiler = self.compiler.compiler_so
 
-                        if os.path.splitext(src)[1] in [".cu", ".cuh"]:
+                        if os.path.splitext(src)[1] in [".cu", ".cuh", ".hip"]:
                             self.compiler.set_executable("compiler_so", str(nvcc_bin))
                             if isinstance(cflags, dict):
                                 cflags = cflags["nvcc"]
 
                             # Add -fPIC if not already specified
                             if not any("-fPIC" in flag for flag in cflags):
-                                cflags.extend(["--compiler-options", "'-fPIC'"])
+                                if rocm_build():
+                                    cflags.append("-fPIC")
+                                else:
+                                    cflags.extend(["--compiler-options", "'-fPIC'"])
 
-                            # Forward unknown options
-                            if not any("--forward-unknown-opts" in flag for flag in cflags):
-                                cflags.append("--forward-unknown-opts")
+                            if not rocm_build():
+                                # Forward unknown options
+                                if not any("--forward-unknown-opts" in flag for flag in cflags):
+                                    cflags.append("--forward-unknown-opts")
 
                         elif isinstance(cflags, dict):
                             cflags = cflags["cxx"]

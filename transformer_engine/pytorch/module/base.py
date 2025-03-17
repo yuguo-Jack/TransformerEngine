@@ -37,6 +37,7 @@ from ..constants import dist_group_type
 from ..tensor import QuantizedTensor, Quantizer
 from ..tensor._internal.float8_tensor_base import Float8TensorBase
 from ..tensor._internal.mxfp8_tensor_base import MXFP8TensorBase
+from torch.utils.cpp_extension import IS_HIP_EXTENSION
 
 __all__ = ["initialize_ub", "destroy_ub"]
 
@@ -44,6 +45,7 @@ _2X_ACC_FPROP = False
 _2X_ACC_DGRAD = True
 _2X_ACC_WGRAD = True
 _multi_stream_cublas_workspace = []
+_multi_stream_cublas_batchgemm_workspace = []
 _cublas_workspace = None
 _ub_communicators = None
 _NUM_MAX_UB_STREAMS = 3
@@ -53,6 +55,13 @@ layers_atomic_ring_exchange = []
 
 def get_cublas_workspace_size_bytes() -> None:
     """Return 32 MiB if using hopper, 4 MiB for all other architectures."""
+    # Add env for control the padding for blaslt
+    if IS_HIP_EXTENSION:
+        nvte_blaslt_nopad = int(os.environ.get("NVTE_BLASLT_NOPAD", 0)) 
+        if(nvte_blaslt_nopad):
+            return 536_870_912
+        else:
+            return 1_073_741_824
     if torch.cuda.get_device_properties(torch.cuda.current_device()).major >= 9:
         return 33_554_432
     return 4_194_304
@@ -77,6 +86,16 @@ def get_multi_stream_cublas_workspace() -> List[torch.Tensor]:
                 torch.empty(get_cublas_workspace_size_bytes(), dtype=torch.uint8, device="cuda")
             )
     return _multi_stream_cublas_workspace
+
+def get_multi_stream_cublas_batchgemm_workspace() -> List[torch.Tensor]:
+    """Returns workspace for multi-stream cublas."""
+    global _multi_stream_cublas_batchgemm_workspace
+    if not _multi_stream_cublas_batchgemm_workspace:
+        for _ in range(tex._num_cublas_batchgemm_streams):
+            _multi_stream_cublas_batchgemm_workspace.append(
+                torch.empty(get_cublas_workspace_size_bytes(), dtype=torch.uint8, device="cuda")
+            )
+    return _multi_stream_cublas_batchgemm_workspace
 
 
 def initialize_ub(

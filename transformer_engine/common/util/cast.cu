@@ -5,7 +5,9 @@
  ************************************************************************/
 
 #include <cuda.h>
+#ifndef __HIP_PLATFORM_AMD__
 #include <cudaTypedefs.h>
+#endif
 #include <cuda_runtime.h>
 #include <transformer_engine/cast.h>
 

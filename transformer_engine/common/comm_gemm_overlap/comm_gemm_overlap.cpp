@@ -107,8 +107,12 @@ CommOverlapCore::CommOverlapCore(int myrank, int numranks, int mylocal, int numl
     This is needed only for Hopper, which uses persistent CTA execution.
   */
   int max_connection = transformer_engine::getenv<int>("CUDA_DEVICE_MAX_CONNECTIONS", 8);
+#ifdef USE_ROCM
+  int runtime_version = 6;
+#else
   int runtime_version = 0;
   cudaRuntimeGetVersion(&runtime_version);
+#endif
   cudaDeviceProp deviceProp;
   cudaGetDeviceProperties(&deviceProp, 0);
   if (runtime_version >= 12030 && deviceProp.major == 9 && max_connection > 1) {
@@ -276,7 +280,11 @@ void CommOverlapBase::bulk_overlap(const TensorWrapper &A, bool transa, const Te
       assert(rs_output.size(0) == _ubuf.size(0) / _tp_size);
       assert(rs_output.element_size() == 2);
       char *rs_output_ptr = reinterpret_cast<char *>(rs_output.dptr());
+#ifdef USE_ROCM
+      reducescatter2_userbuff_fp8<hip_f8<hip_f8_type::bf8>>(rs_output_ptr, _ubuf.scale_inv(), _ub_reg, 0,
+#else
       reducescatter2_userbuff_fp8<__nv_fp8_e5m2>(rs_output_ptr, _ubuf.scale_inv(), _ub_reg, 0,
+#endif
                                                  comm_elements, _ub_comm, _stream_comm,
                                                  (cudaEvent_t)_comm_launch_event);
     } else {

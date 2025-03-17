@@ -36,6 +36,9 @@ void update_tensor_scale_inv(Tensor *t, cudaStream_t stream) {
 }
 
 void checkCuDriverContext(CUstream stream) {
+#ifdef __HIP_PLATFORM_AMD__
+  return;
+#else
   CUcontext ctx;
   const CUresult driver_status = cuda_driver::call("cuStreamGetCtx", stream, &ctx);
   switch (driver_status) {
@@ -54,8 +57,10 @@ void checkCuDriverContext(CUstream stream) {
       cuda_driver::call("cuGetErrorString", driver_status, &desc_NVTE_CHECK_CUDA_DRIVER);
       NVTE_ERROR("CUDA Error: ", desc_NVTE_CHECK_CUDA_DRIVER);
   }
+#endif
 }
 
+#ifndef __HIP_PLATFORM_AMD__
 CUtensorMapDataType get_CUtensorMapDataType(DType dtype) {
   static const std::unordered_map<DType, CUtensorMapDataType> dtypeMapping = {
       {DType::kByte, CUtensorMapDataType::CU_TENSOR_MAP_DATA_TYPE_UINT8},
@@ -127,11 +132,16 @@ void create_2D_tensor_map(CUtensorMap &tensorMap, const SimpleTensor &tensor,
       // Any element that is outside of bounds will be set to zero by the TMA transfer.
       CUtensorMapFloatOOBfill::CU_TENSOR_MAP_FLOAT_OOB_FILL_NONE));
 }
+#endif
 
 bool is_supported_by_CC_100() {
+#ifdef __HIP_PLATFORM_AMD__
+  return false;
+#else
   int deviceComputeCapability = cuda::sm_arch(cuda::current_device());
 
   return deviceComputeCapability >= 100;
+#endif
 }
 
 }  // namespace transformer_engine

@@ -16,11 +16,16 @@ NVTE_Fused_Attn_Backend get_fused_attn_backend(
     float p_dropout, size_t num_attn_heads, size_t num_gqa_groups, size_t max_seqlen_q,
     size_t max_seqlen_kv, size_t head_dim_qk, size_t head_dim_v, int64_t window_size_left,
     int64_t window_size_right) {
+#ifdef __HIP_PLATFORM_AMD__
+  static_assert(false,
+                "Get_fused_attn_backend is not surpported in rocm for normalization yet.");
+#else
   NVTE_Fused_Attn_Backend fused_attention_backend = nvte_get_fused_attn_backend(
       static_cast<NVTEDType>(q_dtype), static_cast<NVTEDType>(kv_dtype), qkv_layout, bias_type,
       attn_mask_type, p_dropout, num_attn_heads, num_gqa_groups, max_seqlen_q, max_seqlen_kv,
       head_dim_qk, head_dim_v, window_size_left, window_size_right);
   return fused_attention_backend;
+#endif
 }
 
 // fast zero-fills of tensors
@@ -93,6 +98,10 @@ std::vector<py::object> fused_attn_fwd(
     const c10::optional<at::Tensor> cu_seqlens_kv_padded, py::handle s_quantizer,
     py::handle o_quantizer, const c10::optional<at::Tensor> Bias,
     const c10::optional<at::Generator> rng_gen, size_t rng_elts_per_thread) {
+#ifdef __HIP_PLATFORM_AMD__
+  static_assert(false,
+                "Fused_attn_fwd is not surpported in rocm for normalization yet.");
+#else
   using namespace transformer_engine;
   using namespace transformer_engine::pytorch;
   TensorWrapper te_Q, te_K, te_V, te_O, te_S;
@@ -254,6 +263,7 @@ std::vector<py::object> fused_attn_fwd(
 
   // if training, [O, softmax-related tensors, rng_state]; if inference, [O]
   return output_tensors;
+#endif
 }
 
 // fused attention BWD with separate Q, K and V
@@ -267,6 +277,10 @@ std::vector<py::object> fused_attn_bwd(
     const c10::optional<at::Tensor> cu_seqlens_q_padded,
     const c10::optional<at::Tensor> cu_seqlens_kv_padded, py::handle s_quantizer,
     py::handle dp_quantizer, py::handle dqkv_quantizer) {
+#ifdef __HIP_PLATFORM_AMD__
+  static_assert(false,
+                "Fused_attn_bwd is not surpported in rocm for normalization yet.");
+#else
   using namespace transformer_engine;
   using namespace transformer_engine::pytorch;
   auto none = py::none();
@@ -492,6 +506,7 @@ std::vector<py::object> fused_attn_bwd(
   nvte_tensor_pack_destroy(&nvte_aux_tensor_pack);
 
   return {py_dQ, py_dK, py_dV, py::cast(dBias)};
+#endif
 }
 
 namespace flash_attention {

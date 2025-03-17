@@ -109,14 +109,22 @@ struct communicator {
 
   int memflags[NVTE_MAX_REGIONS];  // UC,MC, user/lib allocated
 
+#ifdef __HIP_PLATFORM_AMD__
+  hipMemGenericAllocationHandle_t *uchandles[NVTE_MAX_REGIONS];
+#else
   CUmemGenericAllocationHandle *uchandles[NVTE_MAX_REGIONS];
+#endif
   void *ucbase_ptr[NVTE_MAX_REGIONS];  // only for cuMem allocated memory
   size_t mem_size[NVTE_MAX_REGIONS];
   bool mem_dealloc[NVTE_MAX_REGIONS];
 
   void *mc_ptr[NVTE_MAX_REGIONS];
   void *mc_baseptr;
+#ifdef __HIP_PLATFORM_AMD__
+  hipMemGenericAllocationHandle_t mc_handle;
+#else
   CUmemGenericAllocationHandle mc_handle;
+#endif
   size_t mc_offset, mc_maxsize;
   int use_mc;  // 1: use MC if available, 0: override not to use MC
 
